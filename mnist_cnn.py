@@ -4,10 +4,7 @@ TODO:
     -When optimum number of epochs is found, retrain on full data set
 -Encapsulate training into function that can be passes learning rate, keep_rate etc.
 -Impliment random batching
--change submission file name to include relavent info (date/time/LR/KR/numEpochs etc.)
--Write submission file with headers
 -Fix tensorboard, right now it measures accuracy on training set and not validation set (?)
--Change tensorboard log path to include relevant info (date/time/LR/KR/numEpochs etc.)
 -Fix tensorboard step count?
 -Explore changing filter size
 '''
@@ -15,27 +12,30 @@ TODO:
 import tensorflow as tf
 import pandas as pd
 import numpy as np
+import datetime
 from sklearn.model_selection import train_test_split
 
-train_path = './data/train.csv'
-test_path = './data/test.csv'
+TRAIN_PATH = './data/train.csv'
+TEST_PATH = './data/test.csv'
 
-logs_path = './tensorboard_files/5'
+LOGS_PATH = './tensorboard_files/'
 
-num_classes = 10
+NUM_CLASSES = 10
 LEARNING_RATE = 0.001
-keep_rate = 0.8
-keep_prob = tf.placeholder(tf.float32)
+KEEP_RATE = 0.8
+KEEP_PROB = tf.placeholder(tf.float32)
 
-image_width = 28
-image_height = 28
-image_pixels = image_width * image_height
+IMAGE_WIDTH = 28
+IMAGE_HEIGHT = 28
+IMAGE_PIXELS = IMAGE_WIDTH * IMAGE_HEIGHT
 
-hm_epoch = 20
-batch_size = 100
+HM_EPOCH = 1
+BATCH_SIZE = 100
 
-x = tf.placeholder('float', [None, image_pixels], name='Feature_Input')
-y = tf.placeholder('float', [None, num_classes], name='Label_Input')
+START_TIME = datetime.datetime.now().strftime("(%Y-%m-%d_%H:%M:%S)")
+
+x = tf.placeholder('float', [None, IMAGE_PIXELS], name='Feature_Input')
+y = tf.placeholder('float', [None, NUM_CLASSES], name='Label_Input')
 
 
 def conv2d(x, W):
@@ -48,11 +48,11 @@ def maxpool2d(x):
 
 
 # Convert int to one hot
-def dense_to_one_hot(labels_dense, num_classes=10):
+def dense_to_one_hot(labels_dense, NUM_CLASSES=10):
     labels_dense = np.array(labels_dense)
     num_labels = labels_dense.shape[0]
-    index_offset = np.arange(num_labels) * num_classes
-    labels_one_hot = np.zeros((num_labels, num_classes))
+    index_offset = np.arange(num_labels) * NUM_CLASSES
+    labels_one_hot = np.zeros((num_labels, NUM_CLASSES))
     labels_one_hot.flat[index_offset + labels_dense.ravel()] = 1
     return labels_one_hot
 
@@ -71,13 +71,13 @@ def neural_network(data):
         'W_conv1': tf.Variable(tf.random_normal([5, 5, 1, 32])),
         'W_conv2': tf.Variable(tf.random_normal([3, 3, 32, 64])),
         'W_fc': tf.Variable(tf.random_normal([7 * 7 * 64, 1024])),
-        'out': tf.Variable(tf.random_normal([1024, num_classes]))
+        'out': tf.Variable(tf.random_normal([1024, NUM_CLASSES]))
     }
     biases = {
         'b_conv1': tf.Variable(tf.random_normal([32])),
         'b_conv2': tf.Variable(tf.random_normal([64])),
         'b_fc': tf.Variable(tf.random_normal([1024])),
-        'out': tf.Variable(tf.random_normal([num_classes]))
+        'out': tf.Variable(tf.random_normal([NUM_CLASSES]))
     }
 
     data = tf.reshape(data, shape=[-1, 28, 28, 1])
@@ -90,7 +90,7 @@ def neural_network(data):
 
     fc = tf.reshape(conv2, shape=[-1, 7 * 7 * 64])
     fc = tf.nn.relu(tf.matmul(fc, weights['W_fc']) + biases['b_fc'])
-    fc = tf.nn.dropout(fc, keep_prob)
+    fc = tf.nn.dropout(fc, KEEP_PROB)
 
     output = tf.matmul(fc, weights['out']) + biases['out']
 
@@ -98,12 +98,12 @@ def neural_network(data):
 
 
 # Read in the training data
-full_training = pd.read_csv(train_path)
-testing = pd.read_csv(test_path)
+full_training = pd.read_csv(TRAIN_PATH)
+testing = pd.read_csv(TEST_PATH)
 
 # Preprocess data
 labels = full_training['label'].values.tolist()
-labels = dense_to_one_hot(labels, num_classes)
+labels = dense_to_one_hot(labels, NUM_CLASSES)
 full_training = full_training.drop('label', axis=1)
 Xtrain, Xvalid, ytrain, yvalid = train_test_split(
     full_training, labels, test_size=0.1)
@@ -132,42 +132,47 @@ summary_op = tf.summary.merge_all()
 # Train model with select samples
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
-    writer = tf.summary.FileWriter(logs_path, graph=tf.get_default_graph())
-    for epoch in range(hm_epoch):
+    writer = tf.summary.FileWriter(
+        LOGS_PATH + '{}-{}-{}-{}'.format(START_TIME, LEARNING_RATE, KEEP_RATE,
+                                         HM_EPOCH),
+        graph=tf.get_default_graph())
+    for epoch in range(HM_EPOCH):
         epoch_loss = 0
-        for i in range(int(Xtrain.shape[0] / batch_size)):
-            start = 0 + i * batch_size
-            end = start + batch_size
+        for i in range(int(Xtrain.shape[0] / BATCH_SIZE)):
+            start = 0 + i * BATCH_SIZE
+            end = start + BATCH_SIZE
             _, c, summary = sess.run(
                 [optimizer, cost, summary_op],
                 feed_dict={
                     x: Xtrain[start:end, :],
                     y: ytrain[start:end, :],
-                    keep_prob: keep_rate
+                    KEEP_PROB: KEEP_RATE
                 })
             writer.add_summary(summary,
-                               epoch * (Xtrain.shape[0] / batch_size) + i)
+                               epoch * (Xtrain.shape[0] / BATCH_SIZE) + i)
             epoch_loss += c
         print('Epoch',
-              int(epoch + 1), 'completed out of', hm_epoch, 'Loss:',
+              int(epoch + 1), 'completed out of', HM_EPOCH, 'Loss:',
               epoch_loss)
 
         print('Accuracy:',
               accuracy.eval({
                   x: Xvalid,
                   y: yvalid,
-                  keep_prob: 1.0
+                  KEEP_PROB: 1.0
               }))
 
     # Create submission predictions and write to .csv
-    f_handle = open('submission.csv', 'ab')
+    f_handle = open('submission' + '-{}-{}-{}-{}.csv'.format(
+        START_TIME, LEARNING_RATE, KEEP_RATE, HM_EPOCH), 'ab')
+    np.savetxt(f_handle, np.array([['ImageID', 'Label']]), delimiter=',', fmt='%s')
     final_output_predictions = tf.argmax(prediction, 1)
-    for i in range(int(Xtest.shape[0] / batch_size)):
-        start = 0 + i * batch_size
-        end = start + batch_size
+    for i in range(int(Xtest.shape[0] / BATCH_SIZE)):
+        start = 0 + i * BATCH_SIZE
+        end = start + BATCH_SIZE
         final_labels = final_output_predictions.eval({
             x: Xtest[start:end, :],
-            keep_prob: 1.0
+            KEEP_PROB: 1.0
         })
         indexes = np.array(range(start + 1, end + 1))
         submission_matrix = np.column_stack((indexes, final_labels))
