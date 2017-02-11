@@ -69,7 +69,7 @@ def preprocess_data(df):
 def neural_network(data):
     weights = {
         'W_conv1': tf.Variable(tf.random_normal([5, 5, 1, 32])),
-        'W_conv2': tf.Variable(tf.random_normal([5, 5, 32, 64])),
+        'W_conv2': tf.Variable(tf.random_normal([3, 3, 32, 64])),
         'W_fc': tf.Variable(tf.random_normal([7 * 7 * 64, 1024])),
         'out': tf.Variable(tf.random_normal([1024, num_classes]))
     }
