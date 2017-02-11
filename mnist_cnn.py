@@ -2,7 +2,6 @@
 TODO:
 -Learn how to save states (variables?) to keep track of best number of epochs
     -When optimum number of epochs is found, retrain on full data set
--Encapsulate training into function that can be passes learning rate, keep_rate etc.
 -Impliment random batching
 -Fix tensorboard, right now it measures accuracy on training set and not validation set (?)
 -Fix tensorboard step count?
@@ -17,15 +16,15 @@ from sklearn.model_selection import train_test_split
 
 TRAIN_PATH = './data/train.csv'
 TEST_PATH = './data/test.csv'
-
 LOGS_PATH = './tensorboard_files/'
+START_TIME = datetime.datetime.now().strftime("(%Y-%m-%d_%H:%M:%S)")
 
-NUM_CLASSES = 10
 LEARNING_RATE = 0.0001
 LEARNING_RATE_PH = tf.placeholder(tf.float32)
 KEEP_RATE = 0.8
-KEEP_PROB = tf.placeholder(tf.float32)
+KEEP_RATE_PH = tf.placeholder(tf.float32)
 
+NUM_CLASSES = 10
 IMAGE_WIDTH = 28
 IMAGE_HEIGHT = 28
 IMAGE_PIXELS = IMAGE_WIDTH * IMAGE_HEIGHT
@@ -33,23 +32,23 @@ IMAGE_PIXELS = IMAGE_WIDTH * IMAGE_HEIGHT
 HM_EPOCH = 1
 BATCH_SIZE = 100
 
-START_TIME = datetime.datetime.now().strftime("(%Y-%m-%d_%H:%M:%S)")
-
 x = tf.placeholder('float', [None, IMAGE_PIXELS], name='Feature_Input')
 y = tf.placeholder('float', [None, NUM_CLASSES], name='Label_Input')
 
 
 def conv2d(x, W):
+    """Convolution OP with 1,1,1,1 stride and SAME padding"""
     return tf.nn.conv2d(x, W, strides=[1, 1, 1, 1], padding='SAME')
 
 
 def maxpool2d(x):
+    """Maxpooling with 1,2,2,1 size, 1,2,2,1 stide and SAME padding"""
     return tf.nn.max_pool(
         x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
 
 
-# Convert int to one hot
 def dense_to_one_hot(labels_dense, NUM_CLASSES=10):
+    """Converts dense labeling to one-hot"""
     labels_dense = np.array(labels_dense)
     num_labels = labels_dense.shape[0]
     index_offset = np.arange(num_labels) * NUM_CLASSES
@@ -58,7 +57,8 @@ def dense_to_one_hot(labels_dense, NUM_CLASSES=10):
     return labels_one_hot
 
 
-def preprocess_data(df):
+def preprocess_feature_data(df):
+    """Converts pixel data to float, then scales values to between 0-1"""
     df = df.astype(np.float32)
     df = df.values.tolist()
     df = np.array(df)
@@ -66,8 +66,8 @@ def preprocess_data(df):
     return df
 
 
-# Model network
 def neural_network(data):
+    """Defines neural network model, not including cost/optimization/evaluation"""
     weights = {
         'W_conv1': tf.Variable(tf.random_normal([5, 5, 1, 32])),
         'W_conv2': tf.Variable(tf.random_normal([3, 3, 32, 64])),
@@ -91,7 +91,7 @@ def neural_network(data):
 
     fc = tf.reshape(conv2, shape=[-1, 7 * 7 * 64])
     fc = tf.nn.relu(tf.matmul(fc, weights['W_fc']) + biases['b_fc'])
-    fc = tf.nn.dropout(fc, KEEP_PROB)
+    fc = tf.nn.dropout(fc, KEEP_RATE_PH)
 
     output = tf.matmul(fc, weights['out']) + biases['out']
 
@@ -103,6 +103,7 @@ def train_network(START_TIME=START_TIME,
                   KEEP_RATE=KEEP_RATE,
                   HM_EPOCH=HM_EPOCH,
                   BATCH_SIZE=BATCH_SIZE):
+    """Trains model defined in neural_network using x, y placeholders"""
 
     sess.run(tf.global_variables_initializer())
     writer = tf.summary.FileWriter(
@@ -119,7 +120,7 @@ def train_network(START_TIME=START_TIME,
                 feed_dict={
                     x: Xtrain[start:end, :],
                     y: ytrain[start:end, :],
-                    KEEP_PROB: KEEP_RATE,
+                    KEEP_RATE_PH: KEEP_RATE,
                     LEARNING_RATE_PH: LEARNING_RATE
                 })
             writer.add_summary(summary,
@@ -133,7 +134,7 @@ def train_network(START_TIME=START_TIME,
               accuracy.eval({
                   x: Xvalid,
                   y: yvalid,
-                  KEEP_PROB: 1.0
+                  KEEP_RATE_PH: 1.0
               }))
     return model
 
@@ -154,7 +155,7 @@ def evaluate_test_data(START_TIME=START_TIME,
         end = start + BATCH_SIZE
         final_labels = final_output_predictions.eval({
             x: Xtest[start:end, :],
-            KEEP_PROB: 1.0
+            KEEP_RATE_PH: 1.0
         })
         indexes = np.array(range(start + 1, end + 1))
         submission_matrix = np.column_stack((indexes, final_labels))
@@ -169,13 +170,14 @@ testing = pd.read_csv(TEST_PATH)
 # Preprocess data
 labels = full_training['label'].values.tolist()
 labels = dense_to_one_hot(labels, NUM_CLASSES)
+
 full_training = full_training.drop('label', axis=1)
 Xtrain, Xvalid, ytrain, yvalid = train_test_split(
     full_training, labels, test_size=0.1)
 
-Xtrain = preprocess_data(Xtrain)
-Xvalid = preprocess_data(Xvalid)
-Xtest = preprocess_data(testing)
+Xtrain = preprocess_feature_data(Xtrain)
+Xvalid = preprocess_feature_data(Xvalid)
+Xtest = preprocess_feature_data(testing)
 
 # Train model with select samples
 with tf.Session() as sess:
