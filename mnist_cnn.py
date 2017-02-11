@@ -21,7 +21,8 @@ TEST_PATH = './data/test.csv'
 LOGS_PATH = './tensorboard_files/'
 
 NUM_CLASSES = 10
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0001
+LEARNING_RATE_PH = tf.placeholder(tf.float32)
 KEEP_RATE = 0.8
 KEEP_PROB = tf.placeholder(tf.float32)
 
@@ -97,40 +98,12 @@ def neural_network(data):
     return output
 
 
-# Read in the training data
-full_training = pd.read_csv(TRAIN_PATH)
-testing = pd.read_csv(TEST_PATH)
+def train_network(START_TIME=START_TIME,
+                  LEARNING_RATE=LEARNING_RATE,
+                  KEEP_RATE=KEEP_RATE,
+                  HM_EPOCH=HM_EPOCH,
+                  BATCH_SIZE=BATCH_SIZE):
 
-# Preprocess data
-labels = full_training['label'].values.tolist()
-labels = dense_to_one_hot(labels, NUM_CLASSES)
-full_training = full_training.drop('label', axis=1)
-Xtrain, Xvalid, ytrain, yvalid = train_test_split(
-    full_training, labels, test_size=0.1)
-
-Xtrain = preprocess_data(Xtrain)
-Xvalid = preprocess_data(Xvalid)
-Xtest = preprocess_data(testing)
-
-# Create graph and add cost and optimization
-prediction = neural_network(x)
-with tf.name_scope('cross_entropy'):
-    cost = tf.reduce_mean(
-        tf.nn.softmax_cross_entropy_with_logits(prediction, y))
-with tf.name_scope('optimizer'):
-    optimizer = tf.train.AdamOptimizer(LEARNING_RATE).minimize(cost)
-
-# Calculate accuracy on cross-validation
-with tf.name_scope('Accuracy'):
-    correct = tf.equal(tf.argmax(prediction, 1), tf.argmax(y, 1))
-    accuracy = tf.reduce_mean(tf.cast(correct, 'float'))
-
-tf.summary.scalar('Cost', cost)
-tf.summary.scalar('Accuracy', accuracy)
-summary_op = tf.summary.merge_all()
-
-# Train model with select samples
-with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
     writer = tf.summary.FileWriter(
         LOGS_PATH + '{}-{}-{}-{}'.format(START_TIME, LEARNING_RATE, KEEP_RATE,
@@ -146,7 +119,8 @@ with tf.Session() as sess:
                 feed_dict={
                     x: Xtrain[start:end, :],
                     y: ytrain[start:end, :],
-                    KEEP_PROB: KEEP_RATE
+                    KEEP_PROB: KEEP_RATE,
+                    LEARNING_RATE_PH: LEARNING_RATE
                 })
             writer.add_summary(summary,
                                epoch * (Xtrain.shape[0] / BATCH_SIZE) + i)
@@ -161,12 +135,20 @@ with tf.Session() as sess:
                   y: yvalid,
                   KEEP_PROB: 1.0
               }))
+    return model
 
+
+def evaluate_test_data(START_TIME=START_TIME,
+                       LEARNING_RATE=LEARNING_RATE,
+                       KEEP_RATE=KEEP_RATE,
+                       HM_EPOCH=HM_EPOCH,
+                       BATCH_SIZE=BATCH_SIZE):
     # Create submission predictions and write to .csv
     f_handle = open('submission' + '-{}-{}-{}-{}.csv'.format(
         START_TIME, LEARNING_RATE, KEEP_RATE, HM_EPOCH), 'ab')
-    np.savetxt(f_handle, np.array([['ImageID', 'Label']]), delimiter=',', fmt='%s')
-    final_output_predictions = tf.argmax(prediction, 1)
+    np.savetxt(
+        f_handle, np.array([['ImageID', 'Label']]), delimiter=',', fmt='%s')
+    final_output_predictions = tf.argmax(model, 1)
     for i in range(int(Xtest.shape[0] / BATCH_SIZE)):
         start = 0 + i * BATCH_SIZE
         end = start + BATCH_SIZE
@@ -178,3 +160,40 @@ with tf.Session() as sess:
         submission_matrix = np.column_stack((indexes, final_labels))
         np.savetxt(f_handle, submission_matrix, delimiter=',')
     f_handle.close()
+
+
+# Read in the training data
+full_training = pd.read_csv(TRAIN_PATH)
+testing = pd.read_csv(TEST_PATH)
+
+# Preprocess data
+labels = full_training['label'].values.tolist()
+labels = dense_to_one_hot(labels, NUM_CLASSES)
+full_training = full_training.drop('label', axis=1)
+Xtrain, Xvalid, ytrain, yvalid = train_test_split(
+    full_training, labels, test_size=0.1)
+
+Xtrain = preprocess_data(Xtrain)
+Xvalid = preprocess_data(Xvalid)
+Xtest = preprocess_data(testing)
+
+# Train model with select samples
+with tf.Session() as sess:
+    # Create graph and add cost and optimization
+    model = neural_network(x)
+    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(model, y))
+    optimizer = tf.train.AdamOptimizer(LEARNING_RATE_PH).minimize(cost)
+
+    # Calculate accuracy on cross-validation
+    correct = tf.equal(tf.argmax(model, 1), tf.argmax(y, 1))
+    accuracy = tf.reduce_mean(tf.cast(correct, 'float'))
+
+    # Create summary scalars
+    tf.summary.scalar('Cost', cost)
+    tf.summary.scalar('Accuracy', accuracy)
+    summary_op = tf.summary.merge_all()
+
+    train_network()
+    evaluate_test_data()
+    train_network(LEARNING_RATE=0.00001)
+    evaluate_test_data(LEARNING_RATE=0.00001)
