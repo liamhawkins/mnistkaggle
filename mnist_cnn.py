@@ -16,7 +16,6 @@ from sklearn.model_selection import train_test_split
 TRAIN_PATH = './data/train.csv'
 TEST_PATH = './data/test.csv'
 LOGS_PATH = './tensorboard_files/'
-START_TIME = datetime.datetime.now().strftime("(%Y-%m-%d_%H:%M:%S)")
 
 LEARNING_RATE = 0.0001
 LEARNING_RATE_PH = tf.placeholder(tf.float32)
@@ -28,7 +27,7 @@ IMAGE_WIDTH = 28
 IMAGE_HEIGHT = 28
 IMAGE_PIXELS = IMAGE_WIDTH * IMAGE_HEIGHT
 
-HM_EPOCH = 1
+HM_EPOCH = 2
 BATCH_SIZE = 100
 
 x = tf.placeholder('float', [None, IMAGE_PIXELS], name='Feature_Input')
@@ -65,6 +64,15 @@ def preprocess_feature_data(df):
     return df
 
 
+def shuffle_training_data(training_features, training_labels):
+    features_and_labels = np.concatenate((training_features, training_labels), axis=1)
+    np.random.shuffle(features_and_labels)
+    shuffled_training_labels = features_and_labels[:, -10:]
+    shuffled_training_features = features_and_labels[:, :-10]
+    return shuffled_training_features, shuffled_training_labels
+    
+
+
 def neural_network(data):
     """Defines neural network model, not including cost/optimization/evaluation"""
     weights = {
@@ -97,20 +105,23 @@ def neural_network(data):
     return output
 
 
-def train_network(START_TIME=START_TIME,
+def train_network(Xtrain, ytrain,
                   LEARNING_RATE=LEARNING_RATE,
                   KEEP_RATE=KEEP_RATE,
                   HM_EPOCH=HM_EPOCH,
-                  BATCH_SIZE=BATCH_SIZE):
+                  BATCH_SIZE=BATCH_SIZE, SHUFFLE_TRAINING_DATA=True):
     """Trains model defined in neural_network using x, y placeholders"""
 
     sess.run(tf.global_variables_initializer())
+    START_TIME = datetime.datetime.now().strftime("(%Y-%m-%d_%H:%M:%S)")
     writer = tf.summary.FileWriter(
         LOGS_PATH + '{}-{}-{}-{}'.format(START_TIME, LEARNING_RATE, KEEP_RATE,
                                          HM_EPOCH),
         graph=tf.get_default_graph())
     for epoch in range(HM_EPOCH):
         epoch_loss = 0
+        if SHUFFLE_TRAINING_DATA:
+            Xtrain, ytrain = shuffle_training_data(Xtrain, ytrain)
         for i in range(int(Xtrain.shape[0] / BATCH_SIZE)):
             start = 0 + i * BATCH_SIZE
             end = start + BATCH_SIZE
@@ -122,7 +133,8 @@ def train_network(START_TIME=START_TIME,
                     KEEP_RATE_PH: KEEP_RATE,
                     LEARNING_RATE_PH: LEARNING_RATE
                 })
-            writer.add_summary(summary, (epoch + 1) * BATCH_SIZE * (i + 1))
+            print((epoch*Xtrain.shape[0]) + BATCH_SIZE*(i+1))
+            writer.add_summary(summary, (epoch * Xtrain.shape[0]) + BATCH_SIZE * (i + 1))
             epoch_loss += c
         print('Epoch',
               int(epoch + 1), 'completed out of', HM_EPOCH, 'Loss:',
@@ -137,12 +149,12 @@ def train_network(START_TIME=START_TIME,
     return model
 
 
-def evaluate_test_data(START_TIME=START_TIME,
-                       LEARNING_RATE=LEARNING_RATE,
+def evaluate_test_data(LEARNING_RATE=LEARNING_RATE,
                        KEEP_RATE=KEEP_RATE,
                        HM_EPOCH=HM_EPOCH,
                        BATCH_SIZE=BATCH_SIZE):
     # Create submission predictions and write to .csv
+    START_TIME = datetime.datetime.now().strftime("(%Y-%m-%d_%H:%M:%S)")
     f_handle = open('submission' + '-{}-{}-{}-{}.csv'.format(
         START_TIME, LEARNING_RATE, KEEP_RATE, HM_EPOCH), 'ab')
     np.savetxt(
@@ -193,7 +205,7 @@ with tf.Session() as sess:
     tf.summary.scalar('Accuracy', accuracy)
     summary_op = tf.summary.merge_all()
 
-    train_network()
+    train_network(Xtrain, ytrain)
     evaluate_test_data()
-    train_network(LEARNING_RATE=0.00001)
-    evaluate_test_data(LEARNING_RATE=0.00001)
+    train_network(Xtrain, ytrain, SHUFFLE_TRAINING_DATA=False)
+    evaluate_test_data()
