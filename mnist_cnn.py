@@ -4,7 +4,6 @@ TODO:
     -When optimum number of epochs is found, retrain on full data set
 -Impliment random batching
 -Fix tensorboard, right now it measures accuracy on training set and not validation set (?)
--Fix tensorboard step count?
 -Explore changing filter size
 '''
 # Imports and setting up some variables
@@ -123,8 +122,7 @@ def train_network(START_TIME=START_TIME,
                     KEEP_RATE_PH: KEEP_RATE,
                     LEARNING_RATE_PH: LEARNING_RATE
                 })
-            writer.add_summary(summary,
-                               epoch * (Xtrain.shape[0] / BATCH_SIZE) + i)
+            writer.add_summary(summary, (epoch + 1) * BATCH_SIZE * (i + 1))
             epoch_loss += c
         print('Epoch',
               int(epoch + 1), 'completed out of', HM_EPOCH, 'Loss:',
