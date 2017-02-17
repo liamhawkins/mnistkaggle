@@ -2,7 +2,6 @@
 TODO:
 -Learn how to save states (variables?) to keep track of best number of epochs
     -When optimum number of epochs is found, retrain on full data set
--Impliment random batching
 -Fix tensorboard, right now it measures accuracy on training set and not validation set (?)
 -Explore changing filter size
 '''
@@ -19,7 +18,7 @@ LOGS_PATH = './tensorboard_files/'
 
 LEARNING_RATE = 0.0001
 LEARNING_RATE_PH = tf.placeholder(tf.float32)
-KEEP_RATE = 0.8
+KEEP_RATE = 0.5
 KEEP_RATE_PH = tf.placeholder(tf.float32)
 
 NUM_CLASSES = 10
@@ -27,7 +26,7 @@ IMAGE_WIDTH = 28
 IMAGE_HEIGHT = 28
 IMAGE_PIXELS = IMAGE_WIDTH * IMAGE_HEIGHT
 
-HM_EPOCH = 1
+HM_EPOCH = 30
 BATCH_SIZE = 100
 
 x = tf.placeholder('float', [None, IMAGE_PIXELS], name='Feature_Input')
@@ -76,25 +75,31 @@ def shuffle_training_data(training_features, training_labels):
 def neural_network(data):
     """Defines neural network model, not including cost/optimization/evaluation"""
     weights = {
-        'W_conv1': tf.Variable(tf.random_normal([5, 5, 1, 32])),
-        'W_conv2': tf.Variable(tf.random_normal([3, 3, 32, 64])),
-        'W_fc': tf.Variable(tf.random_normal([7 * 7 * 64, 1024])),
-        'out': tf.Variable(tf.random_normal([1024, NUM_CLASSES]))
+        'W_conv1':
+        tf.Variable(tf.random_normal([5, 5, 1, 32]), name='Conv1Weights'),
+        'W_conv2':
+        tf.Variable(tf.random_normal([3, 3, 32, 64]), name='Conv2Weights'),
+        'W_fc':
+        tf.Variable(tf.random_normal([7 * 7 * 64, 1024]), name='FCWeights'),
+        'out':
+        tf.Variable(tf.random_normal([1024, NUM_CLASSES]), name='OUTWeights')
     }
     biases = {
-        'b_conv1': tf.Variable(tf.random_normal([32])),
-        'b_conv2': tf.Variable(tf.random_normal([64])),
-        'b_fc': tf.Variable(tf.random_normal([1024])),
-        'out': tf.Variable(tf.random_normal([NUM_CLASSES]))
+        'b_conv1': tf.Variable(tf.random_normal([32]), name='CONV1Biases'),
+        'b_conv2': tf.Variable(tf.random_normal([64]), name='CONV2Biases'),
+        'b_fc': tf.Variable(tf.random_normal([1024]), name='FCBiases'),
+        'out': tf.Variable(tf.random_normal([NUM_CLASSES]), name='OUTBiases')
     }
 
     data = tf.reshape(data, shape=[-1, 28, 28, 1])
     with tf.name_scope("Conv1"):
-        conv1 = tf.nn.relu(conv2d(data, weights['W_conv1']) + biases['b_conv1'])
+        conv1 = tf.nn.relu(
+            conv2d(data, weights['W_conv1']) + biases['b_conv1'])
         conv1 = maxpool2d(conv1)
 
     with tf.name_scope("Conv2"):
-        conv2 = tf.nn.relu(conv2d(conv1, weights['W_conv2']) + biases['b_conv2'])
+        conv2 = tf.nn.relu(
+            conv2d(conv1, weights['W_conv2']) + biases['b_conv2'])
         conv2 = maxpool2d(conv2)
 
     with tf.name_scope("FC"):
@@ -117,6 +122,8 @@ def train_network(Xtrain,
                   SHUFFLE_TRAINING_DATA=True):
     """Trains model defined in neural_network using x, y placeholders"""
 
+    highest_accuracy = 0.0
+
     sess.run(tf.global_variables_initializer())
     START_TIME = datetime.datetime.now().strftime("(%Y-%m-%d_%H:%M:%S)")
     writer = tf.summary.FileWriter(
@@ -138,22 +145,21 @@ def train_network(Xtrain,
                     KEEP_RATE_PH: KEEP_RATE,
                     LEARNING_RATE_PH: LEARNING_RATE
                 })
-            print((epoch * Xtrain.shape[0]) + BATCH_SIZE * (i + 1))
             writer.add_summary(summary,
                                (epoch * Xtrain.shape[0]) + BATCH_SIZE *
                                (i + 1))
             epoch_loss += c
+
         print('Epoch',
               int(epoch + 1), 'completed out of', HM_EPOCH, 'Loss:',
               epoch_loss)
-
-        print('Accuracy:',
-              accuracy.eval({
-                  x: Xvalid,
-                  y: yvalid,
-                  KEEP_RATE_PH: 1.0
-              }))
-    return model
+        last_accuracy = float(accuracy.eval({x: Xvalid, y: yvalid, KEEP_RATE_PH: 1.0}))
+        print('Accuracy:', last_accuracy)
+        if last_accuracy > highest_accuracy:
+            print('New highest accuracy')
+            saver.save(sess, "./checkpoints/checkpoint.ckpt")
+            highest_accuracy = last_accuracy
+    return output
 
 
 def evaluate_test_data(LEARNING_RATE=LEARNING_RATE,
@@ -166,7 +172,7 @@ def evaluate_test_data(LEARNING_RATE=LEARNING_RATE,
         START_TIME, LEARNING_RATE, KEEP_RATE, HM_EPOCH), 'ab')
     np.savetxt(
         f_handle, np.array([['ImageID', 'Label']]), delimiter=',', fmt='%s')
-    final_output_predictions = tf.argmax(model, 1)
+    final_output_predictions = tf.argmax(output, 1)
     for i in range(int(Xtest.shape[0] / BATCH_SIZE)):
         start = 0 + i * BATCH_SIZE
         end = start + BATCH_SIZE
@@ -199,20 +205,28 @@ Xtest = preprocess_feature_data(testing)
 # Train model with select samples
 with tf.Session() as sess:
     # Create graph and add cost and optimization
-    model = neural_network(x)
+    output = neural_network(x)
     with tf.name_scope("Cost/Optimizer"):
-        cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=model))
+        cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=output))
         optimizer = tf.train.AdamOptimizer(LEARNING_RATE_PH).minimize(cost)
 
     # Calculate accuracy on cross-validation
     with tf.name_scope("Accuracy_Calc"):
-        correct = tf.equal(tf.argmax(model, 1), tf.argmax(y, 1))
+        correct = tf.equal(tf.argmax(output, 1), tf.argmax(y, 1))
         accuracy = tf.reduce_mean(tf.cast(correct, 'float'))
+
+    # Add ops for saving variables
+    saver = tf.train.Saver()
 
     # Create summary scalars
     tf.summary.scalar('Cost', cost)
     tf.summary.scalar('Accuracy', accuracy)
     summary_op = tf.summary.merge_all()
 
-    train_network(Xtrain, ytrain)
+    train_network(Xtrain, ytrain, KEEP_RATE=0.5)
+    saver.restore(sess, "./checkpoints/checkpoint.ckpt")
+    evaluate_test_data()
+
+    train_network(Xtrain, ytrain, KEEP_RATE=0.8)
+    saver.restore(sess, "./checkpoints/checkpoint.ckpt")
     evaluate_test_data()
