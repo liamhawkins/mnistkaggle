@@ -27,7 +27,7 @@ IMAGE_WIDTH = 28
 IMAGE_HEIGHT = 28
 IMAGE_PIXELS = IMAGE_WIDTH * IMAGE_HEIGHT
 
-HM_EPOCH = 2
+HM_EPOCH = 1
 BATCH_SIZE = 100
 
 x = tf.placeholder('float', [None, IMAGE_PIXELS], name='Feature_Input')
@@ -65,12 +65,12 @@ def preprocess_feature_data(df):
 
 
 def shuffle_training_data(training_features, training_labels):
-    features_and_labels = np.concatenate((training_features, training_labels), axis=1)
+    features_and_labels = np.concatenate(
+        (training_features, training_labels), axis=1)
     np.random.shuffle(features_and_labels)
     shuffled_training_labels = features_and_labels[:, -10:]
     shuffled_training_features = features_and_labels[:, :-10]
     return shuffled_training_features, shuffled_training_labels
-    
 
 
 def neural_network(data):
@@ -89,27 +89,32 @@ def neural_network(data):
     }
 
     data = tf.reshape(data, shape=[-1, 28, 28, 1])
+    with tf.name_scope("Conv1"):
+        conv1 = tf.nn.relu(conv2d(data, weights['W_conv1']) + biases['b_conv1'])
+        conv1 = maxpool2d(conv1)
 
-    conv1 = tf.nn.relu(conv2d(data, weights['W_conv1']) + biases['b_conv1'])
-    conv1 = maxpool2d(conv1)
+    with tf.name_scope("Conv2"):
+        conv2 = tf.nn.relu(conv2d(conv1, weights['W_conv2']) + biases['b_conv2'])
+        conv2 = maxpool2d(conv2)
 
-    conv2 = tf.nn.relu(conv2d(conv1, weights['W_conv2']) + biases['b_conv2'])
-    conv2 = maxpool2d(conv2)
+    with tf.name_scope("FC"):
+        fc = tf.reshape(conv2, shape=[-1, 7 * 7 * 64])
+        fc = tf.nn.relu(tf.matmul(fc, weights['W_fc']) + biases['b_fc'])
+        fc = tf.nn.dropout(fc, KEEP_RATE_PH)
 
-    fc = tf.reshape(conv2, shape=[-1, 7 * 7 * 64])
-    fc = tf.nn.relu(tf.matmul(fc, weights['W_fc']) + biases['b_fc'])
-    fc = tf.nn.dropout(fc, KEEP_RATE_PH)
-
-    output = tf.matmul(fc, weights['out']) + biases['out']
+    with tf.name_scope("Output"):
+        output = tf.matmul(fc, weights['out']) + biases['out']
 
     return output
 
 
-def train_network(Xtrain, ytrain,
+def train_network(Xtrain,
+                  ytrain,
                   LEARNING_RATE=LEARNING_RATE,
                   KEEP_RATE=KEEP_RATE,
                   HM_EPOCH=HM_EPOCH,
-                  BATCH_SIZE=BATCH_SIZE, SHUFFLE_TRAINING_DATA=True):
+                  BATCH_SIZE=BATCH_SIZE,
+                  SHUFFLE_TRAINING_DATA=True):
     """Trains model defined in neural_network using x, y placeholders"""
 
     sess.run(tf.global_variables_initializer())
@@ -133,8 +138,10 @@ def train_network(Xtrain, ytrain,
                     KEEP_RATE_PH: KEEP_RATE,
                     LEARNING_RATE_PH: LEARNING_RATE
                 })
-            print((epoch*Xtrain.shape[0]) + BATCH_SIZE*(i+1))
-            writer.add_summary(summary, (epoch * Xtrain.shape[0]) + BATCH_SIZE * (i + 1))
+            print((epoch * Xtrain.shape[0]) + BATCH_SIZE * (i + 1))
+            writer.add_summary(summary,
+                               (epoch * Xtrain.shape[0]) + BATCH_SIZE *
+                               (i + 1))
             epoch_loss += c
         print('Epoch',
               int(epoch + 1), 'completed out of', HM_EPOCH, 'Loss:',
@@ -193,12 +200,14 @@ Xtest = preprocess_feature_data(testing)
 with tf.Session() as sess:
     # Create graph and add cost and optimization
     model = neural_network(x)
-    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(model, y))
-    optimizer = tf.train.AdamOptimizer(LEARNING_RATE_PH).minimize(cost)
+    with tf.name_scope("Cost/Optimizer"):
+        cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y, logits=model))
+        optimizer = tf.train.AdamOptimizer(LEARNING_RATE_PH).minimize(cost)
 
     # Calculate accuracy on cross-validation
-    correct = tf.equal(tf.argmax(model, 1), tf.argmax(y, 1))
-    accuracy = tf.reduce_mean(tf.cast(correct, 'float'))
+    with tf.name_scope("Accuracy_Calc"):
+        correct = tf.equal(tf.argmax(model, 1), tf.argmax(y, 1))
+        accuracy = tf.reduce_mean(tf.cast(correct, 'float'))
 
     # Create summary scalars
     tf.summary.scalar('Cost', cost)
@@ -206,6 +215,4 @@ with tf.Session() as sess:
     summary_op = tf.summary.merge_all()
 
     train_network(Xtrain, ytrain)
-    evaluate_test_data()
-    train_network(Xtrain, ytrain, SHUFFLE_TRAINING_DATA=False)
     evaluate_test_data()
