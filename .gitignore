@@ -1,3 +1,4 @@
 tensorboard_files/
 submission*.csv
+checkpoints/
 *.swp
