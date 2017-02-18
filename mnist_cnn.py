@@ -1,7 +1,6 @@
 '''
 TODO:
--Learn how to save states (variables?) to keep track of best number of epochs
-    -When optimum number of epochs is found, retrain on full data set
+-When optimum number of epochs is found, retrain on full data set
 -Fix tensorboard, right now it measures accuracy on training set and not validation set (?)
 -Explore changing filter size
 '''
@@ -16,7 +15,7 @@ TRAIN_PATH = './data/train.csv'
 TEST_PATH = './data/test.csv'
 LOGS_PATH = './tensorboard_files/'
 
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.001
 LEARNING_RATE_PH = tf.placeholder(tf.float32)
 KEEP_RATE = 0.5
 KEEP_RATE_PH = tf.placeholder(tf.float32)
@@ -222,10 +221,6 @@ with tf.Session() as sess:
     tf.summary.scalar('Cost', cost)
     tf.summary.scalar('Accuracy', accuracy)
     summary_op = tf.summary.merge_all()
-
-    train_network(Xtrain, ytrain, KEEP_RATE=0.5)
-    saver.restore(sess, "./checkpoints/checkpoint.ckpt")
-    evaluate_test_data()
 
     train_network(Xtrain, ytrain, KEEP_RATE=0.8)
     saver.restore(sess, "./checkpoints/checkpoint.ckpt")
